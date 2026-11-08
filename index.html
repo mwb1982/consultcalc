@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meter Running</title>
+<meta name="description" content="Live earnings meter: stopwatch, laps, variable hourly rates, USD→CAD with PayPal fees.">
+<meta name="theme-color" content="#0f1a16" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef1ec" media="(prefers-color-scheme: light)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: one-screen meter. Big USD odometer on top, two conversion tiles beneath,
+     stopwatch + controls as the instrument panel, laps as the ledger, settings in a drawer. */
+  :root {
+    --bg: #0f1a16;          /* deep bottle green, banker's-lamp ground */
+    --panel: #15231e;
+    --panel-2: #1b2c26;
+    --line: #2a3f37;
+    --fg: #e9e6da;          /* bill-paper cream */
+    --muted: #9aaaa1;
+    --accent: #d9a441;      /* brass */
+    --accent-ink: #1b1608;
+    --good: #7fc09a;
+    --warn: #e0a06a;
+    --danger: #d98170;
+    --font-ui: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+    --font-num: "Azeret Mono", "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #eef1ec; --panel: #ffffff; --panel-2: #f3f6f1; --line: #d3dcd5;
+      --fg: #14201b; --muted: #5d6c64; --accent: #b4802a; --accent-ink: #fffaf0;
+      --good: #2d7d55; --warn: #a8642a; --danger: #b2473a;
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #eef1ec; --panel: #ffffff; --panel-2: #f3f6f1; --line: #d3dcd5;
+    --fg: #14201b; --muted: #5d6c64; --accent: #b4802a; --accent-ink: #fffaf0;
+    --good: #2d7d55; --warn: #a8642a; --danger: #b2473a;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font-ui); font-size: 15px; line-height: 1.4;
+    padding-block: 16px 32px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+  header .date { color: var(--muted); font-size: 13px; }
+  .iconbtn {
+    background: var(--panel); border: 1px solid var(--line); color: var(--fg);
+    border-radius: 8px; padding: 7px 12px; font: 500 13px var(--font-ui); cursor: pointer;
+  }
+  .iconbtn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+  /* Odometer */
+  .odometer { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 16px; }
+  .odometer .eyebrow { display: flex; justify-content: space-between; }
+  .odometer .big {
+    font: 600 clamp(40px, 11vw, 76px)/1 var(--font-num); font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em; margin-top: 8px; display: flex; align-items: baseline; gap: .1em; white-space: nowrap; overflow: hidden;
+  }
+  .big .cur { font-size: .45em; color: var(--muted); font-weight: 500; align-self: flex-start; margin-top: .25em; }
+  .big .sub { font-size: .42em; color: var(--muted); font-weight: 400; }
+  .odometer .meta { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; }
+  .odometer .meta b { color: var(--fg); font-weight: 500; font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 440px) { .tiles { grid-template-columns: 1fr; } }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .tile .val { font: 500 clamp(24px, 6vw, 34px)/1.1 var(--font-num); font-variant-numeric: tabular-nums; margin-top: 6px; white-space: nowrap; overflow: hidden; }
+  .tile .val .cur { font-size: .5em; color: var(--muted); margin-right: .15em; }
+  .tile .note { color: var(--muted); font-size: 12.5px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .tile.net { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .tile.net .val { color: var(--accent); }
+
+  /* Instrument panel */
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .clockrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .clock { font: 500 clamp(34px, 9vw, 54px)/1 var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .clock small { font-size: .5em; color: var(--muted); }
+  .lapclock { color: var(--muted); font: 400 14px var(--font-num); font-variant-numeric: tabular-nums; margin-top: 6px; }
+  .state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .state.running { color: var(--good); } .state.running::before { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 25%, transparent); }
+  .state.paused { color: var(--warn); } .state.paused::before { background: var(--warn); }
+
+  .raterow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .raterow label { color: var(--muted); font-size: 13px; }
+  .rate-input { display: flex; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; }
+  .rate-input span { color: var(--muted); font-size: 13px; }
+  .rate-input input { width: 6.5ch; background: transparent; border: 0; color: var(--fg); font: 500 17px var(--font-num); padding: 8px 4px; text-align: right; outline: none; }
+  .rate-input:focus-within { border-color: var(--accent); }
+  .chip { font: 500 12px var(--font-ui); padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.live { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--accent); }
+
+  .controls { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 8px; }
+  button.ctl {
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--fg);
+    border-radius: 10px; padding: 14px 10px; font: 600 15px var(--font-ui); cursor: pointer; letter-spacing: .02em;
+  }
+  button.ctl:hover { border-color: var(--muted); }
+  button.ctl:focus-visible, .iconbtn:focus-visible, .rate-input:focus-within, .field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.ctl.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.ctl.primary.pause { background: transparent; color: var(--warn); border-color: var(--warn); }
+  button.ctl:disabled { opacity: .45; cursor: default; }
+  .confirm { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--panel-2); border: 1px dashed var(--danger); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .confirm .acts { display: flex; gap: 8px; }
+  .confirm button { border-radius: 8px; padding: 7px 12px; font: 600 13px var(--font-ui); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+  .confirm button.yes { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+  /* Ledger */
+  .ledger { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .ledger .head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .ledger table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .ledger th, .ledger td { padding: 9px 16px; text-align: right; font-variant-numeric: tabular-nums; }
+  .ledger th { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .ledger th:first-child, .ledger td:first-child { text-align: left; }
+  .ledger td.num { font-family: var(--font-num); font-size: 13px; }
+  .ledger tr + tr td { border-top: 1px solid var(--line); }
+  .ledger tr.current td { background: var(--panel-2); }
+  .ledger tr.current td:first-child::after { content: " · live"; color: var(--good); font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+  .ledger .empty { padding: 16px; color: var(--muted); font-size: 14px; }
+  .tablewrap { overflow-x: auto; }
+  .ledger tfoot td { border-top: 1px solid var(--line); font-weight: 600; }
+
+  /* Settings drawer */
+  .settings { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .settings h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .field label { font-size: 12.5px; color: var(--muted); }
+  .field .in { display: flex; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; }
+  .field .in span { color: var(--muted); font-size: 13px; }
+  .field input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--fg); font: 500 15px var(--font-num); padding: 9px 6px; outline: none; }
+  .field .in:focus-within { border-color: var(--accent); }
+  .settings p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .settings .preview { font-family: var(--font-num); font-size: 13px; color: var(--fg); background: var(--panel-2); border-radius: 8px; padding: 10px 12px; font-variant-numeric: tabular-nums; line-height: 1.6; }
+  .fxrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:4px; }
+  .tog { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--fg); }
+  .mini { background:transparent; border:1px solid var(--line); color:var(--fg); border-radius:6px; padding:4px 9px; font:500 12px var(--font-ui); cursor:pointer; }
+  .fxstatus { font-size:12px; color:var(--muted); }
+  .fxstatus.err { color:var(--danger); }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Meter Running</h1>
+      <div class="date" id="sessionDate"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="iconbtn" id="copyBtn" type="button">Copy summary</button>
+      <button class="iconbtn" id="settingsBtn" type="button" aria-expanded="false" aria-controls="settings">Settings</button>
+    </div>
+  </header>
+
+  <section class="odometer" aria-live="off">
+    <div class="eyebrow"><span>Gross earned · USD</span><span id="stateLabel" class="state">Ready</span></div>
+    <div class="big"><span class="cur">$</span><span id="bigMain">0.00</span><span class="sub" id="bigSub">00</span></div>
+    <div class="meta">
+      <span>Per second <b id="perSec">$0.0000</b></span>
+      <span>Per minute <b id="perMin">$0.00</b></span>
+      <span>Avg rate <b id="avgRate">$0.00/h</b></span>
+    </div>
+  </section>
+
+  <section class="tiles">
+    <div class="tile">
+      <div class="eyebrow">Gross · CAD</div>
+      <div class="val"><span class="cur">C$</span><span id="cadGross">0.00</span></div>
+      <div class="note">at <span id="fxNote">1.0000</span> CAD per USD · <span id="fxAge">manual</span></div>
+    </div>
+    <div class="tile net">
+      <div class="eyebrow">Net in bank · CAD</div>
+      <div class="val"><span class="cur">C$</span><span id="cadNet">0.00</span></div>
+      <div class="note">PayPal keeps <span id="feeNote">$0.00</span> · <span id="feePct">0.0%</span> of gross</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="clockrow">
+      <div>
+        <div class="clock" id="clock">00:00<small>:00</small></div>
+        <div class="lapclock">this lap <span id="lapClock">00:00:00</span></div>
+      </div>
+      <div class="raterow">
+        <label for="rateNow">Rate now</label>
+        <div class="rate-input"><span>$</span><input id="rateNow" type="number" min="0" step="0.5" inputmode="decimal" value="40"><span>/h</span></div>
+        <span class="chip" id="rateChip">applies to this lap</span>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="ctl primary" id="startBtn" type="button">Start</button>
+      <button class="ctl" id="lapBtn" type="button" disabled>Lap</button>
+      <button class="ctl" id="resetBtn" type="button" disabled>Reset</button>
+    </div>
+    <div class="confirm" id="confirmReset" hidden>
+      <span>Clear this session and all laps? This can't be undone.</span>
+      <span class="acts"><button type="button" id="resetNo">Keep</button><button type="button" class="yes" id="resetYes">Clear session</button></span>
+    </div>
+  </section>
+
+  <section class="ledger">
+    <div class="head"><span class="eyebrow">Laps</span><span class="eyebrow" id="lapCount">0 laps</span></div>
+    <div class="tablewrap" id="lapTable"></div>
+  </section>
+
+  <section class="settings" id="settings" hidden>
+    <h2>Rates &amp; fees</h2>
+    <div class="grid">
+      <div class="field"><label for="fx">USD → CAD rate (mid-market)</label><div class="in"><input id="fx" type="number" step="0.0001" min="0" inputmode="decimal"><span>CAD</span></div>
+        <div class="fxrow"><label class="tog"><input type="checkbox" id="fxAuto"> Update automatically</label><button type="button" class="mini" id="fxRefresh">Refresh now</button></div>
+        <div class="fxstatus" id="fxStatus"></div></div>
+      <div class="field"><label for="feePctIn">PayPal receiving fee</label><div class="in"><input id="feePctIn" type="number" step="0.01" min="0" inputmode="decimal"><span>%</span></div></div>
+      <div class="field"><label for="feeFixedIn">Fixed fee per payment</label><div class="in"><span>$</span><input id="feeFixedIn" type="number" step="0.01" min="0" inputmode="decimal"><span>USD</span></div></div>
+      <div class="field"><label for="spreadIn">PayPal currency conversion spread</label><div class="in"><input id="spreadIn" type="number" step="0.1" min="0" inputmode="decimal"><span>%</span></div></div>
+    </div>
+    <div class="preview" id="feePreview"></div>
+    <p>How net is worked out: gross USD − receiving fee % − one fixed fee, then × your mid-market rate, then − PayPal's conversion spread. The fixed fee is applied once per session, as if the session is paid out as one payment. Fees and spread vary by account type and change over time; check your PayPal fee page and the exchange rate your transfers actually get, then adjust here. Settings and the running session are saved in this browser.</p>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const KEY = 'meter-running-v1';
+
+  const defaults = {
+    settings: { rate: 40, fx: 1.38, feePct: 3.9, feeFixed: 0.30, spread: 4.0, fxAuto: true },
+    fxMeta: { at: null, date: null, src: null },
+    laps: [],            // {rate, elapsedMs, runningSince|null, startedAt}
+    createdAt: null
+  };
+  let S = load();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) { const p = JSON.parse(raw); return { ...defaults, ...p, settings: { ...defaults.settings, ...(p.settings || {}) }, fxMeta: { ...defaults.fxMeta, ...(p.fxMeta || {}) } }; }
+    } catch (e) {}
+    return JSON.parse(JSON.stringify(defaults));
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+  // ---- model ----
+  const now = () => Date.now();
+  const cur = () => S.laps[S.laps.length - 1] || null;
+  const running = () => !!(cur() && cur().runningSince);
+  const lapMs = (l) => l.elapsedMs + (l.runningSince ? now() - l.runningSince : 0);
+  const lapUsd = (l) => lapMs(l) / 3600000 * l.rate;
+  const totalMs = () => S.laps.reduce((a, l) => a + lapMs(l), 0);
+  const grossUsd = () => S.laps.reduce((a, l) => a + lapUsd(l), 0);
+
+  function money(g) {
+    const s = S.settings;
+    const fee = g * s.feePct / 100 + (g > 0 ? s.feeFixed : 0);
+    const netUsd = Math.max(0, g - fee);
+    const cadGross = g * s.fx;
+    const cadNet = netUsd * s.fx * (1 - s.spread / 100);
+    return { fee: Math.min(fee, g), netUsd, cadGross, cadNet, keptCad: cadGross - cadNet };
+  }
+
+  function newLap(rate) {
+    S.laps.push({ rate, elapsedMs: 0, runningSince: now(), startedAt: now() });
+    if (!S.createdAt) S.createdAt = now();
+  }
+  function start() {
+    const rate = readRate();
+    const c = cur();
+    if (c && !c.runningSince) c.runningSince = now();   // resume same lap
+    else if (!c) newLap(rate);
+    save(); wake(true); render();
+  }
+  function pause() {
+    const c = cur(); if (!c || !c.runningSince) return;
+    c.elapsedMs += now() - c.runningSince; c.runningSince = null;
+    save(); wake(false); render();
+  }
+  function lap() {
+    const c = cur(); if (!c) return;
+    const wasRunning = !!c.runningSince;
+    if (wasRunning) { c.elapsedMs += now() - c.runningSince; c.runningSince = null; }
+    newLap(readRate());
+    if (!wasRunning) cur().runningSince = null;
+    save(); render();
+  }
+  function applyRateChange() {
+    const rate = readRate();
+    const c = cur();
+    if (!c) return render();
+    if (lapMs(c) < 1000) { c.rate = rate; }          // fresh lap: just relabel it
+    else if (c.rate !== rate) { lap(); return; }      // split into a new lap at the new rate
+    save(); render();
+  }
+  function reset() { S.laps = []; S.createdAt = null; save(); wake(false); render(); }
+  function readRate() {
+    const v = parseFloat($('rateNow').value);
+    const r = isFinite(v) && v >= 0 ? v : S.settings.rate;
+    S.settings.rate = r; return r;
+  }
+
+  // ---- wake lock ----
+  let lock = null;
+  async function wake(on) {
+    try {
+      if (on && !lock && navigator.wakeLock) { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); }
+      if (!on && lock) { await lock.release(); lock = null; }
+    } catch (e) { lock = null; }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && running()) wake(true); });
+
+  // ---- formatting ----
+  const fmt2 = (n) => n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt4 = (n) => n.toFixed(4);
+  function hms(ms, withHundredths) {
+    const t = Math.max(0, Math.floor(ms));
+    const h = Math.floor(t / 3600000), m = Math.floor(t / 60000) % 60, s = Math.floor(t / 1000) % 60, c = Math.floor(t / 10) % 100;
+    const p = (n) => String(n).padStart(2, '0');
+    return withHundredths ? `${p(h)}:${p(m)}:${p(s)}.${p(c)}` : `${p(h)}:${p(m)}:${p(s)}`;
+  }
+
+  // ---- render ----
+  let lastLapCount = -1, lastRunning = null;
+  function render() {
+    const g = grossUsd(), m = money(g), s = S.settings, isRun = running(), c = cur();
+    // odometer: dollars.cents + two faded sub-cent digits
+    const whole = Math.floor(g * 100) / 100;
+    $('bigMain').textContent = fmt2(whole);
+    $('bigSub').textContent = String(Math.floor((g * 10000) % 100)).padStart(2, '0');
+    const liveRate = isRun ? c.rate : readRate();
+    $('perSec').textContent = '$' + fmt4(liveRate / 3600);
+    $('perMin').textContent = '$' + fmt2(liveRate / 60);
+    const tm = totalMs();
+    $('avgRate').textContent = '$' + fmt2(tm > 0 ? g / (tm / 3600000) : 0) + '/h';
+    $('cadGross').textContent = fmt2(m.cadGross);
+    $('cadNet').textContent = fmt2(m.cadNet);
+    $('fxNote').textContent = s.fx.toFixed(4);
+    $('fxAge').textContent = S.fxMeta && S.fxMeta.at ? 'live, ' + S.fxMeta.date : 'manual rate';
+    $('feeNote').textContent = 'C$' + fmt2(m.keptCad);
+    $('feePct').textContent = (m.cadGross > 0 ? (m.keptCad / m.cadGross * 100) : 0).toFixed(1) + '%';
+
+    const clk = hms(tm, true);
+    $('clock').innerHTML = clk.slice(0, 8) + '<small>' + clk.slice(8) + '</small>';
+    $('lapClock').textContent = c ? hms(lapMs(c), true) : '00:00:00.00';
+
+    const st = $('stateLabel');
+    st.className = 'state ' + (isRun ? 'running' : c ? 'paused' : '');
+    st.textContent = isRun ? 'Running' : c ? 'Paused' : 'Ready';
+
+    const sb = $('startBtn');
+    sb.textContent = isRun ? 'Pause' : c ? 'Resume' : 'Start';
+    sb.className = 'ctl primary' + (isRun ? ' pause' : '');
+    $('lapBtn').disabled = !c;
+    $('resetBtn').disabled = !c;
+    $('rateChip').textContent = isRun ? 'applies to this lap' : c ? 'applies when you resume' : 'applies at start';
+    $('rateChip').className = 'chip' + (isRun ? ' live' : '');
+
+    if (S.laps.length !== lastLapCount || isRun !== lastRunning) { renderLedgerShell(); lastLapCount = S.laps.length; lastRunning = isRun; }
+    updateLedgerNumbers();
+    $('sessionDate').textContent = S.createdAt ? 'Session started ' + new Date(S.createdAt).toLocaleString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'No session yet';
+    renderFeePreview();
+  }
+
+  function renderLedgerShell() {
+    $('lapCount').textContent = S.laps.length + (S.laps.length === 1 ? ' lap' : ' laps');
+    if (!S.laps.length) { $('lapTable').innerHTML = '<div class="empty">Press Start. Each lap records its own rate, so change the rate whenever the work changes.</div>'; return; }
+    let rows = '';
+    S.laps.forEach((l, i) => {
+      const last = i === S.laps.length - 1;
+      rows += `<tr class="${last ? 'current' : ''}"><td>Lap ${i + 1}</td><td class="num" data-k="time" data-i="${i}"></td><td class="num">$${fmt2(l.rate)}/h</td><td class="num" data-k="usd" data-i="${i}"></td><td class="num" data-k="cad" data-i="${i}"></td></tr>`;
+    });
+    $('lapTable').innerHTML = `<table><thead><tr><th>Lap</th><th>Time</th><th>Rate</th><th>USD</th><th>CAD gross</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="num" id="tTime"></td><td></td><td class="num" id="tUsd"></td><td class="num" id="tCad"></td></tr></tfoot></table>`;
+  }
+  function updateLedgerNumbers() {
+    if (!S.laps.length) return;
+    document.querySelectorAll('#lapTable td[data-k]').forEach((td) => {
+      const l = S.laps[+td.dataset.i], k = td.dataset.k;
+      td.textContent = k === 'time' ? hms(lapMs(l)) : k === 'usd' ? '$' + fmt2(lapUsd(l)) : 'C$' + fmt2(lapUsd(l) * S.settings.fx);
+    });
+    const g = grossUsd();
+    $('tTime').textContent = hms(totalMs()); $('tUsd').textContent = '$' + fmt2(g); $('tCad').textContent = 'C$' + fmt2(g * S.settings.fx);
+  }
+  function renderFeePreview() {
+    const s = S.settings, m = money(100);
+    $('feePreview').textContent = `On $100.00 USD → fee $${fmt2(m.fee)} → $${fmt2(m.netUsd)} USD → C$${fmt2(m.netUsd * s.fx)} at ${s.fx.toFixed(4)} → C$${fmt2(m.cadNet)} after ${s.spread}% spread. Effective rate C$${(m.cadNet / 100).toFixed(4)} per USD earned.`;
+  }
+
+  // ---- tick ----
+  let raf = null;
+  function tick() { render(); raf = running() ? requestAnimationFrame(tick) : null; }
+  function ensureTick() { if (running() && !raf) raf = requestAnimationFrame(tick); }
+
+  // ---- wiring ----
+  $('startBtn').addEventListener('click', () => { running() ? pause() : start(); ensureTick(); });
+  $('lapBtn').addEventListener('click', () => { lap(); ensureTick(); toast('Lap ' + S.laps.length + ' started'); });
+  $('resetBtn').addEventListener('click', () => { $('confirmReset').hidden = false; });
+  $('resetNo').addEventListener('click', () => { $('confirmReset').hidden = true; });
+  $('resetYes').addEventListener('click', () => { $('confirmReset').hidden = true; reset(); });
+  $('rateNow').addEventListener('change', () => { applyRateChange(); ensureTick(); });
+
+  $('settingsBtn').addEventListener('click', () => {
+    const open = $('settings').hidden; $('settings').hidden = !open; $('settingsBtn').setAttribute('aria-expanded', String(open));
+  });
+  const bind = (id, key) => {
+    $(id).value = S.settings[key];
+    $(id).addEventListener('input', () => { const v = parseFloat($(id).value); if (isFinite(v) && v >= 0) { S.settings[key] = v; save(); render(); } });
+  };
+  bind('fx', 'fx'); bind('feePctIn', 'feePct');
+  $('fx').addEventListener('input', () => { S.fxMeta = { at: null, date: null, src: 'manual' }; save(); fxStatus(); });
+
+  // ---- live FX (ECB reference rate via frankfurter.app, no key needed) ----
+  const FX_URL = 'https://api.frankfurter.app/latest?from=USD&to=CAD';
+  let fxBusy = false;
+  async function fetchFx(manual) {
+    if (fxBusy) return; fxBusy = true; fxStatus('Fetching rate…');
+    try {
+      const r = await fetch(FX_URL, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(); const v = j && j.rates && j.rates.CAD;
+      if (!(v > 0)) throw new Error('No CAD rate in response');
+      S.settings.fx = Math.round(v * 10000) / 10000; S.fxMeta = { at: Date.now(), date: j.date, src: 'ECB' };
+      $('fx').value = S.settings.fx; save(); render(); if (manual) toast('Rate updated: ' + S.settings.fx);
+    } catch (e) {
+      fxStatus('Couldn\'t fetch a rate (' + (navigator.onLine ? e.message : 'offline') + '). Using ' + S.settings.fx + '.', true);
+    } finally { fxBusy = false; }
+  }
+  function fxStatus(msg, err) {
+    const el = $('fxStatus'); el.className = 'fxstatus' + (err ? ' err' : '');
+    if (msg) { el.textContent = msg; return; }
+    const m = S.fxMeta || {};
+    el.textContent = m.at ? `Live ${m.src} reference rate for ${m.date}, checked ${new Date(m.at).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}. Updates once per business day around 8am Pacific.` : 'Manual rate. Turn on automatic updates to pull the daily mid-market rate.';
+  }
+  $('fxAuto').checked = !!S.settings.fxAuto;
+  $('fxAuto').addEventListener('change', () => { S.settings.fxAuto = $('fxAuto').checked; save(); if (S.settings.fxAuto) fetchFx(false); else { S.fxMeta = { at: null, src: 'manual' }; save(); fxStatus(); } });
+  $('fxRefresh').addEventListener('click', () => fetchFx(true));
+  function fxMaybe() { if (!S.settings.fxAuto) return; const age = Date.now() - (S.fxMeta.at || 0); if (age > 60 * 60 * 1000) fetchFx(false); }
+  fxMaybe(); setInterval(fxMaybe, 10 * 60 * 1000);
+  window.addEventListener('online', fxMaybe);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fxMaybe(); });
+  fxStatus(); bind('feeFixedIn', 'feeFixed'); bind('spreadIn', 'spread');
+  $('rateNow').value = S.settings.rate;
+
+  $('copyBtn').addEventListener('click', async () => {
+    const g = grossUsd(), m = money(g), s = S.settings;
+    const lines = [
+      `Session ${S.createdAt ? new Date(S.createdAt).toLocaleDateString('en-CA') : ''} — ${hms(totalMs())} worked`,
+      ...S.laps.map((l, i) => `Lap ${i + 1}: ${hms(lapMs(l))} @ $${fmt2(l.rate)}/h = $${fmt2(lapUsd(l))} USD`),
+      `Gross: $${fmt2(g)} USD = C$${fmt2(m.cadGross)} @ ${s.fx.toFixed(4)}`,
+      `PayPal fee ${s.feePct}% + $${fmt2(s.feeFixed)}: −$${fmt2(m.fee)} USD`,
+      `Conversion spread ${s.spread}%`,
+      `Net to bank: C$${fmt2(m.cadNet)}`
+    ].join('\n');
+    try { await navigator.clipboard.writeText(lines); toast('Summary copied'); }
+    catch (e) {
+      const ta = document.createElement('textarea'); ta.value = lines; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+      toast('Select and copy the text'); setTimeout(() => ta.remove(), 15000);
+    }
+  });
+
+  let toastT; function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1800); }
+
+  render(); ensureTick(); if (running()) wake(true);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
