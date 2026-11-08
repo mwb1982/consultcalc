@@ -434,26 +434,34 @@
   $('fx').addEventListener('input', () => { S.fxMeta = { at: null, date: null, src: 'manual' }; save(); fxStatus(); });
 
   // ---- live FX (ECB reference rate via frankfurter.app, no key needed) ----
-  const FX_URL = 'https://api.frankfurter.app/latest?from=USD&to=CAD';
+  // Two independent sources; the second is tried only if the first fails.
+  const FX_SOURCES = [
+    { name: 'ECB', url: 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=CAD', pick: (j) => ({ v: j.rates && j.rates.CAD, date: j.date }) },
+    { name: 'ExchangeRate-API', url: 'https://open.er-api.com/v6/latest/USD', pick: (j) => ({ v: j.rates && j.rates.CAD, date: j.time_last_update_utc ? new Date(j.time_last_update_utc).toISOString().slice(0, 10) : '' }) }
+  ];
   let fxBusy = false;
   async function fetchFx(manual) {
     if (fxBusy) return; fxBusy = true; fxStatus('Fetching rate…');
-    try {
-      const r = await fetch(FX_URL, { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const j = await r.json(); const v = j && j.rates && j.rates.CAD;
-      if (!(v > 0)) throw new Error('No CAD rate in response');
-      S.settings.fx = Math.round(v * 10000) / 10000; S.fxMeta = { at: Date.now(), date: j.date, src: 'ECB' };
-      $('fx').value = S.settings.fx; save(); render(); if (manual) toast('Rate updated: ' + S.settings.fx);
-    } catch (e) {
-      fxStatus('Couldn\'t fetch a rate (' + (navigator.onLine ? e.message : 'offline') + '). Using ' + S.settings.fx + '.', true);
-    } finally { fxBusy = false; }
+    const errors = [];
+    for (const srcDef of FX_SOURCES) {
+      try {
+        const r = await fetch(srcDef.url, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const { v, date } = srcDef.pick(await r.json());
+        if (!(v > 0)) throw new Error('no CAD rate');
+        S.settings.fx = Math.round(v * 10000) / 10000; S.fxMeta = { at: Date.now(), date, src: srcDef.name };
+        $('fx').value = S.settings.fx; save(); render(); if (manual) toast('Rate updated: ' + S.settings.fx);
+        fxBusy = false; return;
+      } catch (e) { errors.push(srcDef.name + ': ' + e.message); }
+    }
+    fxStatus((navigator.onLine ? 'Both rate sources failed (' + errors.join('; ') + ').' : 'You\'re offline.') + ' Using ' + S.settings.fx + ' for now.', true);
+    fxBusy = false;
   }
   function fxStatus(msg, err) {
     const el = $('fxStatus'); el.className = 'fxstatus' + (err ? ' err' : '');
     if (msg) { el.textContent = msg; return; }
     const m = S.fxMeta || {};
-    el.textContent = m.at ? `Live ${m.src} reference rate for ${m.date}, checked ${new Date(m.at).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}. Updates once per business day around 8am Pacific.` : 'Manual rate. Turn on automatic updates to pull the daily mid-market rate.';
+    el.textContent = m.at ? `Live ${m.src} rate for ${m.date}, checked ${new Date(m.at).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}. Sources update once a day; the app rechecks hourly.` : 'Manual rate. Turn on automatic updates to pull the daily mid-market rate.';
   }
   $('fxAuto').checked = !!S.settings.fxAuto;
   $('fxAuto').addEventListener('change', () => { S.settings.fxAuto = $('fxAuto').checked; save(); if (S.settings.fxAuto) fetchFx(false); else { S.fxMeta = { at: null, src: 'manual' }; save(); fxStatus(); } });

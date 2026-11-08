@@ -21,8 +21,8 @@ Any static host over HTTPS works the same (Netlify, Cloudflare Pages).
 
 ## Exchange rate
 
-Rates come from frankfurter.app (European Central Bank reference rates, no API key). The ECB publishes once
-per business day around 16:00 CET (about 8am Pacific); the app re-checks hourly while open and when it comes
+Rates come from api.frankfurter.dev (European Central Bank reference rates), with open.er-api.com as a fallback.
+Neither needs an API key. Both publish about once a day; the app re-checks hourly while open and when it comes
 back online. Untick *Update automatically* in Settings to enter your own rate.
 
 PayPal does not convert at the mid-market rate. Set the *conversion spread* to the gap between the mid-market
