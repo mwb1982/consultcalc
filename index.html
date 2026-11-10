@@ -160,6 +160,25 @@
   .mini { background:transparent; border:1px solid var(--line); color:var(--fg); border-radius:6px; padding:4px 9px; font:500 12px var(--font-ui); cursor:pointer; }
   .fxstatus { font-size:12px; color:var(--muted); }
   .fxstatus.err { color:var(--danger); }
+  .tabs { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px; }
+  .tabs button { flex: 1; border: 0; background: transparent; color: var(--muted); border-radius: 7px; padding: 9px 12px; font: 600 13.5px var(--font-ui); cursor: pointer; letter-spacing: .02em; }
+  .tabs button[aria-selected="true"] { background: var(--panel-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+  .view { display: flex; flex-direction: column; gap: 14px; }
+  .calc-add { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 8px; align-items: stretch; }
+  @media (max-width: 440px) { .calc-add { grid-template-columns: 1fr 1fr; } .calc-add .ctl { grid-column: 1 / -1; } }
+  .calc-add .in { display: flex; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; min-width: 0; }
+  .calc-add .in span { color: var(--muted); font-size: 13px; }
+  .calc-add .in input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--fg); padding: 12px 6px; outline: none; }
+  .calc-add .in input.amt { font: 500 18px var(--font-num); text-align: right; }
+  .calc-add .in input.lbl { font: 400 15px var(--font-ui); }
+  .calc-add .in:focus-within { border-color: var(--accent); }
+  .calc-add .ctl { padding: 12px 16px; }
+  .ledger td .del { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+  .ledger td .del:hover { color: var(--danger); background: var(--panel-2); }
+  .ledger td.lbl { text-align: left; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ledger td.lbl i { color: var(--muted); font-style: normal; }
+  .calc-opts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .calc-opts .acts { display: flex; gap: 8px; }
   .ver { font-family: var(--font-num); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
   .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: 1; }
@@ -180,6 +199,12 @@
     </div>
   </header>
 
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabMeter" aria-selected="true" aria-controls="viewMeter">Meter</button>
+    <button type="button" role="tab" id="tabCalc" aria-selected="false" aria-controls="viewCalc">Calculator</button>
+  </div>
+
+  <div class="view" id="viewMeter">
   <section class="odometer" aria-live="off">
     <div class="eyebrow"><span>Gross earned · USD</span><span id="stateLabel" class="state">Ready</span></div>
     <div class="big"><span class="cur">$</span><span id="bigMain">0.00</span><span class="sub" id="bigSub">00</span></div>
@@ -230,6 +255,52 @@
     <div class="head"><span class="eyebrow">Laps</span><span class="eyebrow" id="lapCount">0 laps</span></div>
     <div class="tablewrap" id="lapTable"></div>
   </section>
+  </div>
+
+  <div class="view" id="viewCalc" hidden>
+  <section class="odometer">
+    <div class="eyebrow"><span>Total · USD</span><span id="calcCount">0 entries</span></div>
+    <div class="big"><span class="cur">$</span><span id="calcUsd">0.00</span></div>
+    <div class="meta">
+      <span>PayPal fees <b id="calcFee">$0.00</b></span>
+      <span>Net USD <b id="calcNetUsd">$0.00</b></span>
+    </div>
+  </section>
+
+  <section class="tiles">
+    <div class="tile">
+      <div class="eyebrow">Gross · CAD</div>
+      <div class="val"><span class="cur">C$</span><span id="calcCadGross">0.00</span></div>
+      <div class="note">at <span id="calcFxNote">1.0000</span> CAD per USD</div>
+    </div>
+    <div class="tile net">
+      <div class="eyebrow">Net in bank · CAD</div>
+      <div class="val"><span class="cur">C$</span><span id="calcCadNet">0.00</span></div>
+      <div class="note">PayPal keeps <span id="calcKept">C$0.00</span> · <span id="calcKeptPct">0.0%</span> of gross</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form class="calc-add" id="calcForm" autocomplete="off">
+      <div class="in"><span>$</span><input class="amt" id="calcAmt" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00" aria-label="Amount in USD"><span>USD</span></div>
+      <div class="in"><input class="lbl" id="calcLbl" type="text" maxlength="40" placeholder="Label (optional)" aria-label="Label"></div>
+      <button class="ctl primary" type="submit">Add</button>
+    </form>
+  </section>
+
+  <section class="ledger">
+    <div class="head"><span class="eyebrow">Entries</span><span class="eyebrow" id="calcTotalHead">$0.00</span></div>
+    <div class="tablewrap" id="calcTable"></div>
+    <div class="calc-opts">
+      <label class="tog"><input type="checkbox" id="calcOnePay"> Treat all entries as one PayPal payment</label>
+      <span class="acts"><button type="button" class="mini" id="calcFromMeter">Add meter session</button><button type="button" class="mini" id="calcCopy">Copy</button><button type="button" class="mini" id="calcClear">Clear all</button></span>
+    </div>
+    <div class="confirm" id="confirmCalcClear" hidden style="margin:0 12px 12px">
+      <span>Remove all entries?</span>
+      <span class="acts"><button type="button" id="calcClearNo">Keep</button><button type="button" class="yes" id="calcClearYes">Clear</button></span>
+    </div>
+  </section>
+  </div>
 
   <section class="settings" id="settings" hidden>
     <h2>Rates &amp; fees</h2>
@@ -242,7 +313,7 @@
       <div class="field"><label for="spreadIn">PayPal currency conversion spread</label><div class="in"><input id="spreadIn" type="number" step="0.1" min="0" inputmode="decimal"><span>%</span></div></div>
     </div>
     <div class="preview" id="feePreview"></div>
-    <p class="ver">Build 3</p>
+    <p class="ver">Build 4</p>
     <p>How net is worked out: gross USD − receiving fee % − one fixed fee, then × your mid-market rate, then − PayPal's conversion spread. The fixed fee is applied once per session, as if the session is paid out as one payment. Fees and spread vary by account type and change over time; check your PayPal fee page and the exchange rate your transfers actually get, then adjust here. Settings and the running session are saved in this browser.</p>
   </section>
 </div>
@@ -256,6 +327,8 @@
   const defaults = {
     settings: { rate: 40, fx: 1.38, feePct: 3.9, feeFixed: 0.30, spread: 4.0, fxAuto: true },
     fxMeta: { at: null, date: null, src: null },
+    calc: { entries: [], onePayment: false },   // entries: {usd, label, at}
+    view: 'meter',
     laps: [],            // {rate, elapsedMs, runningSince|null, startedAt}
     createdAt: null
   };
@@ -264,7 +337,7 @@
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) { const p = JSON.parse(raw); return { ...defaults, ...p, settings: { ...defaults.settings, ...(p.settings || {}) }, fxMeta: { ...defaults.fxMeta, ...(p.fxMeta || {}) } }; }
+      if (raw) { const p = JSON.parse(raw); return { ...defaults, ...p, settings: { ...defaults.settings, ...(p.settings || {}) }, fxMeta: { ...defaults.fxMeta, ...(p.fxMeta || {}) }, calc: { ...defaults.calc, ...(p.calc || {}) } }; }
     } catch (e) {}
     return JSON.parse(JSON.stringify(defaults));
   }
@@ -279,9 +352,10 @@
   const totalMs = () => S.laps.reduce((a, l) => a + lapMs(l), 0);
   const grossUsd = () => S.laps.reduce((a, l) => a + lapUsd(l), 0);
 
-  function money(g) {
+  function money(g, payments) {
     const s = S.settings;
-    const fee = g * s.feePct / 100 + (g > 0 ? s.feeFixed : 0);
+    const n = payments === undefined ? (g > 0 ? 1 : 0) : payments;
+    const fee = g * s.feePct / 100 + n * s.feeFixed;
     const netUsd = Math.max(0, g - fee);
     const cadGross = g * s.fx;
     const cadNet = netUsd * s.fx * (1 - s.spread / 100);
@@ -387,6 +461,7 @@
     updateLedgerNumbers();
     $('sessionDate').textContent = S.createdAt ? 'Session started ' + new Date(S.createdAt).toLocaleString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'No session yet';
     renderFeePreview();
+    renderCalc();
   }
 
   function renderLedgerShell() {
@@ -412,6 +487,79 @@
     const s = S.settings, m = money(100);
     $('feePreview').textContent = `On $100.00 USD → fee $${fmt2(m.fee)} → $${fmt2(m.netUsd)} USD → C$${fmt2(m.netUsd * s.fx)} at ${s.fx.toFixed(4)} → C$${fmt2(m.cadNet)} after ${s.spread}% spread. Effective rate C$${(m.cadNet / 100).toFixed(4)} per USD earned.`;
   }
+
+  // ---- calculator ----
+  const calcGross = () => S.calc.entries.reduce((a, e) => a + e.usd, 0);
+  function calcMoney() {
+    const g = calcGross(), n = S.calc.onePayment ? (g > 0 ? 1 : 0) : S.calc.entries.filter((e) => e.usd > 0).length;
+    return { g, ...money(g, n) };
+  }
+  let lastCalcKey = '';
+  function renderCalc() {
+    const m = calcMoney(), s = S.settings, n = S.calc.entries.length;
+    $('calcUsd').textContent = fmt2(m.g);
+    $('calcCount').textContent = n + (n === 1 ? ' entry' : ' entries');
+    $('calcFee').textContent = '−$' + fmt2(m.fee);
+    $('calcNetUsd').textContent = '$' + fmt2(m.netUsd);
+    $('calcCadGross').textContent = fmt2(m.cadGross);
+    $('calcCadNet').textContent = fmt2(m.cadNet);
+    $('calcFxNote').textContent = s.fx.toFixed(4);
+    $('calcKept').textContent = 'C$' + fmt2(m.keptCad);
+    $('calcKeptPct').textContent = (m.cadGross > 0 ? m.keptCad / m.cadGross * 100 : 0).toFixed(1) + '%';
+    $('calcTotalHead').textContent = '$' + fmt2(m.g) + ' USD';
+    const key = JSON.stringify(S.calc.entries) + s.fx;
+    if (key === lastCalcKey) return; lastCalcKey = key;
+    if (!n) { $('calcTable').innerHTML = '<div class="empty">Type an amount and press Add. Each line is treated as its own PayPal payment unless you tick the box below.</div>'; return; }
+    const rows = S.calc.entries.map((e, i) => `<tr><td class="lbl">${e.label ? esc(e.label) : '<i>Entry ' + (i + 1) + '</i>'}</td><td class="num">$${fmt2(e.usd)}</td><td class="num">C$${fmt2(e.usd * s.fx)}</td><td style="width:1%"><button type="button" class="del" data-del="${i}" aria-label="Remove entry">×</button></td></tr>`).join('');
+    $('calcTable').innerHTML = `<table><thead><tr><th>Item</th><th>USD</th><th>CAD gross</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  $('calcForm').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const v = Math.round(parseFloat($('calcAmt').value) * 100) / 100;
+    if (!(v >= 0) || isNaN(v)) { $('calcAmt').focus(); return; }
+    S.calc.entries.push({ usd: v, label: $('calcLbl').value.trim(), at: Date.now() });
+    $('calcAmt').value = ''; $('calcLbl').value = ''; $('calcAmt').focus();
+    save(); render();
+  });
+  $('calcTable').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-del]'); if (!b) return;
+    S.calc.entries.splice(+b.dataset.del, 1); save(); render();
+  });
+  $('calcOnePay').checked = !!S.calc.onePayment;
+  $('calcOnePay').addEventListener('change', () => { S.calc.onePayment = $('calcOnePay').checked; save(); render(); });
+  $('calcFromMeter').addEventListener('click', () => {
+    const g = Math.round(grossUsd() * 100) / 100;
+    if (!(g > 0)) { toast('Meter session is empty'); return; }
+    const d = S.createdAt ? new Date(S.createdAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : '';
+    S.calc.entries.push({ usd: g, label: ('Meter ' + d + ' · ' + hms(totalMs())).trim(), at: Date.now() });
+    save(); render(); toast('Added $' + fmt2(g) + ' from meter');
+  });
+  $('calcClear').addEventListener('click', () => { $('confirmCalcClear').hidden = false; });
+  $('calcClearNo').addEventListener('click', () => { $('confirmCalcClear').hidden = true; });
+  $('calcClearYes').addEventListener('click', () => { $('confirmCalcClear').hidden = true; S.calc.entries = []; save(); render(); });
+  $('calcCopy').addEventListener('click', () => {
+    const m = calcMoney(), s = S.settings;
+    const lines = [
+      ...S.calc.entries.map((e, i) => `${e.label || 'Entry ' + (i + 1)}: $${fmt2(e.usd)} USD`),
+      `Gross: $${fmt2(m.g)} USD = C$${fmt2(m.cadGross)} @ ${s.fx.toFixed(4)}`,
+      `PayPal fees (${s.feePct}% + $${fmt2(s.feeFixed)} × ${S.calc.onePayment ? 1 : S.calc.entries.filter((e) => e.usd > 0).length}): −$${fmt2(m.fee)} USD`,
+      `Conversion spread ${s.spread}%`,
+      `Net to bank: C$${fmt2(m.cadNet)}`
+    ].join('\n');
+    copyText(lines, 'Breakdown copied');
+  });
+
+  // ---- tabs ----
+  function showView(v) {
+    S.view = v; save();
+    $('viewMeter').hidden = v !== 'meter'; $('viewCalc').hidden = v !== 'calc';
+    $('tabMeter').setAttribute('aria-selected', String(v === 'meter')); $('tabCalc').setAttribute('aria-selected', String(v === 'calc'));
+    $('copyBtn').hidden = v !== 'meter';
+  }
+  $('tabMeter').addEventListener('click', () => showView('meter'));
+  $('tabCalc').addEventListener('click', () => showView('calc'));
+  showView(S.view === 'calc' ? 'calc' : 'meter');
 
   // ---- tick ----
   let raf = null;
@@ -486,12 +634,16 @@
       `Conversion spread ${s.spread}%`,
       `Net to bank: C$${fmt2(m.cadNet)}`
     ].join('\n');
-    try { await navigator.clipboard.writeText(lines); toast('Summary copied'); }
-    catch (e) {
-      const ta = document.createElement('textarea'); ta.value = lines; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
-      toast('Select and copy the text'); setTimeout(() => ta.remove(), 15000);
-    }
+    copyText(lines, 'Summary copied');
   });
+  async function copyText(text, okMsg) {
+    try { await navigator.clipboard.writeText(text); toast(okMsg); }
+    catch (e) {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast(okMsg); } catch (e2) { toast('Copy not available'); }
+      setTimeout(() => ta.remove(), 500);
+    }
+  }
 
   let toastT; function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1800); }
 
