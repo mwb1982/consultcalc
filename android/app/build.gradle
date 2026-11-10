@@ -1,0 +1,43 @@
+plugins { id("com.android.application") }
+
+def versionProps = new Properties()
+file("version.properties").withInputStream { versionProps.load(it) }
+
+android {
+    namespace "io.github.mwb1982.consultcalc"
+    compileSdk 34
+    defaultConfig {
+        applicationId "io.github.mwb1982.consultcalc"
+        minSdk 24
+        targetSdk 34
+        versionCode versionProps["versionCode"].toInteger()
+        versionName versionProps["versionName"]
+        manifestPlaceholders = [
+            hostName: "mwb1982.github.io",
+            launchUrl: "https://mwb1982.github.io/consultcalc/",
+            assetStatements: '[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "web", "site": "https://mwb1982.github.io" } }]'
+        ]
+    }
+    signingConfigs {
+        release {
+            def ks = System.getenv("KEYSTORE_PATH")
+            if (ks != null) {
+                storeFile file(ks)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias "meter"
+                keyPassword System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+
+dependencies {
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0"
+}

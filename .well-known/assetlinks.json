@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "io.github.mwb1982.consultcalc",
+    "sha256_cert_fingerprints": ["EC:81:49:50:42:6B:98:D6:D5:09:49:B1:32:AB:7D:7B:50:49:74:37:E4:77:9E:14:28:C7:64:E0:74:3A:2E:08"]
+  }
+}]

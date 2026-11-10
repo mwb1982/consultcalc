@@ -31,3 +31,13 @@ rate and what your transfers actually get.
 ## Data
 
 Session, laps and settings are stored in the browser (localStorage) on each device; they do not sync between devices.
+
+## Android app
+
+`android/` is a Trusted Web Activity wrapper: a native package that opens the hosted app full-screen,
+with the site verified through `.well-known/assetlinks.json`. GitHub Actions builds and signs a release
+APK whenever `android/` changes (or on demand from the Actions tab) and attaches it to a GitHub Release.
+
+Signing uses two repository secrets: `KEYSTORE_B64` (the release keystore, base64) and
+`KEYSTORE_PASSWORD`. Keep a copy of the keystore somewhere safe; losing it means future builds can't
+update an installed copy in place. To ship a new version, bump `android/app/version.properties`.

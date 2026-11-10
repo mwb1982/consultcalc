@@ -2,6 +2,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    paths-ignore: ['android/**', '.github/workflows/android.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,8 +22,13 @@ jobs:
       - uses: actions/configure-pages@v5
         with:
           enablement: true
+      - name: Stage site files (web app only, not the Android project)
+        run: |
+          mkdir -p _site/.well-known
+          cp index.html manifest.webmanifest sw.js icon-192.png icon-512.png README.md _site/
+          cp .well-known/assetlinks.json _site/.well-known/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
