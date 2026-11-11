@@ -179,6 +179,10 @@
   .ledger td.lbl i { color: var(--muted); font-style: normal; }
   .calc-opts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   .calc-opts .acts { display: flex; gap: 8px; }
+  .calrow { display: flex; gap: 6px; flex-wrap: wrap; align-items: stretch; }
+  .calrow .in { flex: 1 1 90px; }
+  .calrow .in input { padding: 8px 4px; font-size: 14px; }
+  .calrow .mini { padding: 8px 10px; }
   .ver { font-family: var(--font-num); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
   .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: 1; }
@@ -292,7 +296,10 @@
     <div class="head"><span class="eyebrow">Entries</span><span class="eyebrow" id="calcTotalHead">$0.00</span></div>
     <div class="tablewrap" id="calcTable"></div>
     <div class="calc-opts">
-      <label class="tog"><input type="checkbox" id="calcOnePay"> Treat all entries as one PayPal payment</label>
+      <span style="display:flex;flex-direction:column;gap:6px">
+        <label class="tog"><input type="checkbox" id="calcPostFee"> Amounts are PayPal balance (receiving fee already taken)</label>
+        <label class="tog" id="calcOnePayRow"><input type="checkbox" id="calcOnePay"> Treat all entries as one PayPal payment</label>
+      </span>
       <span class="acts"><button type="button" class="mini" id="calcFromMeter">Add meter session</button><button type="button" class="mini" id="calcCopy">Copy</button><button type="button" class="mini" id="calcClear">Clear all</button></span>
     </div>
     <div class="confirm" id="confirmCalcClear" hidden style="margin:0 12px 12px">
@@ -313,8 +320,31 @@
       <div class="field"><label for="spreadIn">PayPal currency conversion spread</label><div class="in"><input id="spreadIn" type="number" step="0.1" min="0" inputmode="decimal"><span>%</span></div></div>
     </div>
     <div class="preview" id="feePreview"></div>
-    <p class="ver">Build 4</p>
-    <p>How net is worked out: gross USD − receiving fee % − one fixed fee, then × your mid-market rate, then − PayPal's conversion spread. The fixed fee is applied once per session, as if the session is paid out as one payment. Fees and spread vary by account type and change over time; check your PayPal fee page and the exchange rate your transfers actually get, then adjust here. Settings and the running session are saved in this browser.</p>
+
+    <h2>Calibrate from real transactions</h2>
+    <div class="grid">
+      <div class="field">
+        <label>Bank transfer: USD sent → CAD received</label>
+        <div class="calrow">
+          <div class="in"><span>$</span><input id="calUsd" type="number" step="0.01" min="0" inputmode="decimal" placeholder="213.03" aria-label="USD sent"></div>
+          <div class="in"><span>C$</span><input id="calCad" type="number" step="0.01" min="0" inputmode="decimal" placeholder="285.78" aria-label="CAD received"></div>
+          <div class="in"><input id="calDate" type="date" aria-label="Transfer date"></div>
+          <button type="button" class="mini" id="calSpreadBtn">Set spread</button>
+        </div>
+        <div class="fxstatus" id="calSpreadOut"></div>
+      </div>
+      <div class="field">
+        <label>Client payment: gross → net credited</label>
+        <div class="calrow">
+          <div class="in"><span>$</span><input id="calGross" type="number" step="0.01" min="0" inputmode="decimal" placeholder="gross" aria-label="Gross USD"></div>
+          <div class="in"><span>$</span><input id="calNet" type="number" step="0.01" min="0" inputmode="decimal" placeholder="net" aria-label="Net USD"></div>
+          <button type="button" class="mini" id="calFeeBtn">Set fee %</button>
+        </div>
+        <div class="fxstatus" id="calFeeOut"></div>
+      </div>
+    </div>
+    <p class="ver">Build 5</p>
+    <p>How net is worked out: gross USD − receiving fee % − fixed fee per payment, then × the mid-market rate, then − PayPal's conversion spread. The spread is the all-in gap between mid-market and what lands in your bank; PayPal quotes "4% above base rate" but its base rate already sits below mid-market, so real-world spreads run higher. Calibrating from a real transfer and a real payment is the reliable way to set both numbers; recheck every few months. Settings and data are saved in this browser.</p>
   </section>
 </div>
 <div class="toast" id="toast"></div>
@@ -325,9 +355,9 @@
   const KEY = 'meter-running-v1';
 
   const defaults = {
-    settings: { rate: 40, fx: 1.38, feePct: 3.9, feeFixed: 0.30, spread: 4.0, fxAuto: true },
+    settings: { rate: 40, fx: 1.38, feePct: 3.9, feeFixed: 0.30, spread: 5.4, fxAuto: true },
     fxMeta: { at: null, date: null, src: null },
-    calc: { entries: [], onePayment: false },   // entries: {usd, label, at}
+    calc: { entries: [], onePayment: false, postFee: false },   // entries: {usd, label, at}
     view: 'meter',
     laps: [],            // {rate, elapsedMs, runningSince|null, startedAt}
     createdAt: null
@@ -491,7 +521,13 @@
   // ---- calculator ----
   const calcGross = () => S.calc.entries.reduce((a, e) => a + e.usd, 0);
   function calcMoney() {
-    const g = calcGross(), n = S.calc.onePayment ? (g > 0 ? 1 : 0) : S.calc.entries.filter((e) => e.usd > 0).length;
+    const g = calcGross();
+    if (S.calc.postFee) {
+      // amounts are already net of receiving fees: conversion only
+      const s = S.settings, cadGross = g * s.fx, cadNet = g * s.fx * (1 - s.spread / 100);
+      return { g, fee: 0, netUsd: g, cadGross, cadNet, keptCad: cadGross - cadNet };
+    }
+    const n = S.calc.onePayment ? (g > 0 ? 1 : 0) : S.calc.entries.filter((e) => e.usd > 0).length;
     return { g, ...money(g, n) };
   }
   let lastCalcKey = '';
@@ -499,7 +535,8 @@
     const m = calcMoney(), s = S.settings, n = S.calc.entries.length;
     $('calcUsd').textContent = fmt2(m.g);
     $('calcCount').textContent = n + (n === 1 ? ' entry' : ' entries');
-    $('calcFee').textContent = '−$' + fmt2(m.fee);
+    $('calcFee').textContent = S.calc.postFee ? 'already taken' : '−$' + fmt2(m.fee);
+    $('calcOnePayRow').style.opacity = S.calc.postFee ? '.4' : '1'; $('calcOnePay').disabled = !!S.calc.postFee;
     $('calcNetUsd').textContent = '$' + fmt2(m.netUsd);
     $('calcCadGross').textContent = fmt2(m.cadGross);
     $('calcCadNet').textContent = fmt2(m.cadNet);
@@ -526,6 +563,8 @@
     const b = ev.target.closest('[data-del]'); if (!b) return;
     S.calc.entries.splice(+b.dataset.del, 1); save(); render();
   });
+  $('calcPostFee').checked = !!S.calc.postFee;
+  $('calcPostFee').addEventListener('change', () => { S.calc.postFee = $('calcPostFee').checked; save(); render(); });
   $('calcOnePay').checked = !!S.calc.onePayment;
   $('calcOnePay').addEventListener('change', () => { S.calc.onePayment = $('calcOnePay').checked; save(); render(); });
   $('calcFromMeter').addEventListener('click', () => {
@@ -543,11 +582,47 @@
     const lines = [
       ...S.calc.entries.map((e, i) => `${e.label || 'Entry ' + (i + 1)}: $${fmt2(e.usd)} USD`),
       `Gross: $${fmt2(m.g)} USD = C$${fmt2(m.cadGross)} @ ${s.fx.toFixed(4)}`,
-      `PayPal fees (${s.feePct}% + $${fmt2(s.feeFixed)} × ${S.calc.onePayment ? 1 : S.calc.entries.filter((e) => e.usd > 0).length}): −$${fmt2(m.fee)} USD`,
+      S.calc.postFee ? 'Receiving fees: already deducted (amounts are PayPal balance)' : `PayPal fees (${s.feePct}% + $${fmt2(s.feeFixed)} × ${S.calc.onePayment ? 1 : S.calc.entries.filter((e) => e.usd > 0).length}): −$${fmt2(m.fee)} USD`,
       `Conversion spread ${s.spread}%`,
       `Net to bank: C$${fmt2(m.cadNet)}`
     ].join('\n');
     copyText(lines, 'Breakdown copied');
+  });
+
+  // ---- calibration ----
+  $('calDate').value = new Date().toISOString().slice(0, 10);
+  async function midRateOn(date) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (!date || date >= today) return { v: S.settings.fx, label: 'current rate ' + S.settings.fx.toFixed(4) };
+    try {
+      const r = await fetch(`https://api.frankfurter.dev/v1/${date}?base=USD&symbols=CAD`, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(); const v = j.rates && j.rates.CAD;
+      if (!(v > 0)) throw new Error('no rate');
+      return { v, label: `ECB rate ${v.toFixed(4)} for ${j.date}` };
+    } catch (e) { return { v: S.settings.fx, label: 'current rate ' + S.settings.fx.toFixed(4) + ' (could not fetch ' + date + ')' }; }
+  }
+  $('calSpreadBtn').addEventListener('click', async () => {
+    const usd = parseFloat($('calUsd').value), cad = parseFloat($('calCad').value);
+    const out = $('calSpreadOut'); out.className = 'fxstatus';
+    if (!(usd > 0 && cad > 0)) { out.className = 'fxstatus err'; out.textContent = 'Enter both the USD sent and the CAD that arrived.'; return; }
+    out.textContent = 'Looking up the rate…';
+    const mid = await midRateOn($('calDate').value);
+    const eff = cad / usd, spread = (1 - eff / mid.v) * 100;
+    if (spread < 0 || spread > 15) { out.className = 'fxstatus err'; out.textContent = `That implies a ${spread.toFixed(2)}% spread (effective ${eff.toFixed(4)} vs ${mid.label}), which looks wrong. Check the amounts or the date.`; return; }
+    S.settings.spread = Math.round(spread * 100) / 100; $('spreadIn').value = S.settings.spread; save(); render();
+    out.textContent = `Effective ${eff.toFixed(4)} CAD/USD vs ${mid.label} → spread set to ${S.settings.spread}%.`;
+    toast('Spread set to ' + S.settings.spread + '%');
+  });
+  $('calFeeBtn').addEventListener('click', () => {
+    const g = parseFloat($('calGross').value), n = parseFloat($('calNet').value);
+    const out = $('calFeeOut'); out.className = 'fxstatus';
+    if (!(g > 0 && n > 0 && n <= g)) { out.className = 'fxstatus err'; out.textContent = 'Enter the gross the client paid and the net PayPal credited (net must be smaller).'; return; }
+    const pct = ((g - n - S.settings.feeFixed) / g) * 100;
+    if (pct < 0 || pct > 15) { out.className = 'fxstatus err'; out.textContent = `That implies ${pct.toFixed(2)}% after the $${fmt2(S.settings.feeFixed)} fixed fee, which looks wrong. Check the fixed fee setting or the amounts.`; return; }
+    S.settings.feePct = Math.round(pct * 100) / 100; $('feePctIn').value = S.settings.feePct; save(); render();
+    out.textContent = `Fee $${fmt2(g - n)} on $${fmt2(g)} → ${S.settings.feePct}% + $${fmt2(S.settings.feeFixed)} fixed.`;
+    toast('Receiving fee set to ' + S.settings.feePct + '%');
   });
 
   // ---- tabs ----
